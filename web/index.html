@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>webdelve</title>
+    <!-- CodeMirror -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.65.7/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.65.7/theme/dracula.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.65.7/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/6.65.7/mode/go/go.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1e1e2e;
+            color: #cdd6f4;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .toolbar {
+            background: #181825;
+            padding: 8px 12px;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            border-bottom: 1px solid #313244;
+        }
+        button {
+            background: #313244;
+            color: #cdd6f4;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+        button:hover:not(:disabled) { background: #45475a; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        button.danger { background: #f38ba8; color: #1e1e2e; }
+        button.danger:hover:not(:disabled) { background: #f5c2e7; }
+        .spacer { flex: 1; }
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+        }
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #a6adc8;
+        }
+        .status-dot.connected { background: #a6e3a1; }
+        .status-dot.error { background: #f38ba8; }
+        .main-panel {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+        .editor-panel {
+            flex: 2;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid #313244;
+            min-width: 0;
+        }
+        .editor-header {
+            background: #181825;
+            padding: 6px 12px;
+            font-size: 12px;
+            border-bottom: 1px solid #313244;
+            display: flex;
+            justify-content: space-between;
+        }
+        .CodeMirror {
+            flex: 1;
+            font-size: 14px;
+            background: #1e1e2e;
+            color: #cdd6f4;
+            height: 100%;
+        }
+        .debug-panel {
+            flex: 1;
+            background: #181825;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            min-width: 300px;
+        }
+        .panel-section {
+            border-bottom: 1px solid #313244;
+        }
+        .panel-header {
+            padding: 8px 12px;
+            background: #1e1e2e;
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            justify-content: space-between;
+        }
+        .panel-header:hover { background: #313244; }
+        .panel-content {
+            padding: 8px 12px;
+            font-size: 13px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .stack-item, .goroutine-item, .bp-item {
+            padding: 4px 0;
+            border-bottom: 1px solid #313244;
+            font-family: 'SF Mono', Monaco, monospace;
+        }
+
+        .stack-frame { cursor: pointer; }
+        .stack-frame:hover { background: #313244; }
+        .stack-frame.selected { background: #45475a; }
+        .output-panel {
+            background: #11111b;
+            color: #cdd6f4;
+            padding: 8px 12px;
+            font-size: 12px;
+            border-top: 1px solid #313244;
+            max-height: 100px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            font-family: monospace;
+        }
+        .error-text { color: #f38ba8; }
+        .success-text { color: #a6e3a1; }
+        .info-text { color: #89b4fa; }
+        .current-line {
+            background-color: rgba(100, 150, 255, 0.2) !important;
+        }
+
+        /* breakpoint gutter styling */
+        .CodeMirror-gutters {
+            background-color: #1e1e2e;
+        }
+
+        .CodeMirror-gutter.breakpoints {
+            width: 16px;
+            background-color: #1e1e2e;
+        }
+
+        .breakpoint-gutter {
+            color: #f38ba8;
+            font-size: 14px;
+            text-align: center;
+            line-height: 1.5;
+            width: 100%;
+            cursor: pointer;
+        }
+
+        /* Variable tree styles */
+        .var-tree {
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+        .var-item {
+            padding: 2px 0;
+            border-bottom: 1px solid #313244;
+        }
+        .var-header {
+            display: flex;
+            align-items: baseline;
+            cursor: pointer;
+            user-select: none;
+        }
+        .var-header:hover {
+            background: #313244;
+        }
+        .var-name {
+            color: #89b4fa;
+            margin-right: 6px;
+        }
+        .var-value {
+            color: #a6e3a1;
+        }
+        .var-type {
+            color: #f9e2af;
+            font-size: 12px;
+            margin-left: 6px;
+        }
+        .var-children {
+            margin-left: 20px;
+            border-left: 1px dashed #45475a;
+            padding-left: 12px;
+        }
+        .expand-icon {
+            display: inline-block;
+            width: 16px;
+            color: #858585;
+            font-size: 12px;
+            transition: transform 0.1s;
+        }
+        .expand-icon.expanded {
+            transform: rotate(90deg);
+        }
+    </style>
+</head>
+<body>
+<div class="toolbar">
+    <button id="compileBtn">Compile & Debug</button>
+    <button id="continueBtn" disabled>Continue</button>
+    <button id="nextBtn" disabled>Step Over</button>
+    <button id="stepBtn" disabled>Step Into</button>
+    <button id="stepOutBtn" disabled>Step Out</button>
+    <button id="restartBtn" disabled>Restart</button>
+    <button id="stopBtn" class="danger" disabled>Stop</button>
+    <div class="spacer"></div>
+    <div class="status">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="statusText">Disconnected</span>
+    </div>
+</div>
+
+<div class="main-panel">
+    <div class="editor-panel">
+        <div class="editor-header">
+            <span id="positionInfo"></span>
+        </div>
+        <textarea id="editor">package main
+
+import "fmt"
+
+func main() {
+    x := 42
+    y := x * 2
+    z := y * y + x
+    fmt.Printf("x=%d, y=%d z=%d\n", x, y, z)
+}</textarea>
+    </div>
+
+    <div class="debug-panel">
+        <div class="panel-section">
+            <div class="panel-header" data-section="vars">
+                <span>▼ Local Variables</span>
+                <span id="varCount"></span>
+            </div>
+            <div class="panel-content" id="varsPanel">None</div>
+        </div>
+        <div class="panel-section">
+            <div class="panel-header" data-section="stack">
+                <span>▼ Call Stack</span>
+            </div>
+            <div class="panel-content" id="stackPanel">Empty</div>
+        </div>
+        <div class="panel-section">
+            <div class="panel-header" data-section="goroutines">
+                <span>▼ Goroutines</span>
+                <span id="goroutineCount"></span>
+            </div>
+            <div class="panel-content" id="goroutinesPanel">None</div>
+        </div>
+        <div class="panel-section">
+            <div class="panel-header" data-section="breakpoints">
+                <span>▼ Breakpoints</span>
+            </div>
+            <div class="panel-content" id="breakpointsPanel">None</div>
+        </div>
+    </div>
+</div>
+
+<div class="output-panel" id="output">Ready.</div>
+
+<script>
+    (function(){
+        "use strict";
+
+        // ---------- Configuration ----------
+        const API_BASE = window.location.origin; // Adjust if backend is on different port
+        const SOURCE_FILE = '/main.go';
+
+        // ---------- State ----------
+        let editor;
+        let ws = null;
+        let sessionId = null;
+        let debugState = null;          // current delve state
+        let locals = [];
+        let stack = [];
+        let goroutines = [];
+        let breakpoints = [];
+        let currentFrame = 0;
+        let currentGoroutine = -1;
+        let programExited = false;
+        let currentSourceFile = 'main.go';
+
+        // UI Elements
+        const compileBtn = document.getElementById('compileBtn');
+        const continueBtn = document.getElementById('continueBtn');
+        const nextBtn = document.getElementById('nextBtn');
+        const stepBtn = document.getElementById('stepBtn');
+        const stepOutBtn = document.getElementById('stepOutBtn');
+        const restartBtn = document.getElementById('restartBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        const outputDiv = document.getElementById('output');
+        const positionInfo = document.getElementById('positionInfo');
+
+        // Panels
+        const varsPanel = document.getElementById('varsPanel');
+        const stackPanel = document.getElementById('stackPanel');
+        const goroutinesPanel = document.getElementById('goroutinesPanel');
+        const breakpointsPanel = document.getElementById('breakpointsPanel');
+        const varCount = document.getElementById('varCount');
+        const goroutineCount = document.getElementById('goroutineCount');
+
+        // CodeMirror initialization
+        editor = CodeMirror.fromTextArea(document.getElementById('editor'), {
+            mode: 'text/x-go',
+            theme: 'dracula',
+            lineNumbers: true,
+            indentUnit: 4,
+            tabSize: 4,
+            indentWithTabs: false,
+            gutters: ['CodeMirror-linenumbers', 'breakpoints']
+        });
+
+        // Add breakpoint gutter marker
+        editor.on('gutterClick', function(cm, n, gutter) {
+            if (gutter !== 'breakpoints') return;
+            const info = cm.lineInfo(n);
+            const line = n + 1;
+            toggleBreakpoint(line);
+        });
+
+        // ---------- UI Helpers ----------
+        function setStatus(connected, text) {
+            statusDot.className = 'status-dot' + (connected ? ' connected' : '');
+            statusText.textContent = text || (connected ? 'Connected' : 'Disconnected');
+        }
+
+        function log(message, type = 'info') {
+            const line = document.createElement('div');
+            line.className = type + '-text';
+            line.textContent = message;
+            outputDiv.appendChild(line);
+            outputDiv.scrollTop = outputDiv.scrollHeight;
+            // Keep only last 50 lines
+            while (outputDiv.children.length > 50) {
+                outputDiv.removeChild(outputDiv.firstChild);
+            }
+        }
+
+        function enableDebugControls(enabled) {
+            const controls = [continueBtn, nextBtn, stepBtn, stepOutBtn, restartBtn, stopBtn];
+            controls.forEach(btn => btn.disabled = !enabled || programExited);
+        }
+
+        function updateUIAfterState() {
+            if (!debugState) return;
+            programExited = debugState.exited || false;
+            enableDebugControls(true);
+            if (programExited) {
+                log('Program exited.', 'info');
+                continueBtn.disabled = true;
+                nextBtn.disabled = true;
+                stepBtn.disabled = true;
+                stepOutBtn.disabled = true;
+            }
+
+            // Update position info and highlight current line
+            const thread = debugState.currentThread;
+            if (thread && thread.file && thread.line) {
+                currentSourceFile = thread.file;
+                positionInfo.textContent = `${thread.file}:${thread.line}`;
+
+                // Only highlight if the file is our main source (main.go)
+                if (thread.file.includes('main.go') || thread.file.endsWith('/main.go')) {
+                    // Clear previous marker
+                    if (currentLineMarker !== null) {
+                        editor.removeLineClass(currentLineMarker, 'background', 'current-line');
+                    }
+                    // Add new marker (line numbers are 1-based in Delve, 0-based in CodeMirror)
+                    currentLineMarker = editor.addLineClass(thread.line - 1, 'background', 'current-line');
+                    // Scroll to the line
+                    editor.scrollIntoView({line: thread.line - 1, ch: 0}, 100);
+                } else {
+                    // If file is not main.go, clear marker
+                    if (currentLineMarker !== null) {
+                        editor.removeLineClass(currentLineMarker, 'background', 'current-line');
+                        currentLineMarker = null;
+                    }
+                }
+            } else {
+                positionInfo.textContent = '';
+                if (currentLineMarker !== null) {
+                    editor.removeLineClass(currentLineMarker, 'background', 'current-line');
+                    currentLineMarker = null;
+                }
+            }
+
+            // Refresh data panels
+            refreshLocals();
+            refreshStack();
+            refreshGoroutines();
+        }
+
+        let currentLineMarker = null;
+
+        function formatVariable(v) {
+            let valueDisplay = '';
+
+            // if value have basic type (e.g., int, string, bool)
+            if (v.value && v.value !== '') {
+                valueDisplay = escapeHtml(v.value);
+            } 
+            // Handle slices (type starts with "[]")
+            else if (v.type && v.type.startsWith('[]')) {
+                const len = v.len || 0;
+                const cap = v.cap || 0;
+                if (v.children && v.children.length) {
+                    const elements = v.children.map(c => escapeHtml(c.value)).join(', ');
+                    valueDisplay = `(len=${len} cap=${cap}) [${elements}]`;
+                } else {
+                    valueDisplay = `(len=${len} cap=${cap}) []`;
+                }
+            } 
+            // Handle other complex types (structs, maps, etc.)
+            else if (v.children && v.children.length) {
+                valueDisplay = '{ ... }'; // placeholder for expandable tree
+            } 
+            else {
+                valueDisplay = '?';
+            }
+
+            return `
+                <div class="var-item">
+                    <span class="var-name">${escapeHtml(v.name)}</span>:
+                    <span class="var-value">${valueDisplay}</span>
+                    <span class="var-type">${escapeHtml(v.type)}</span>
+                </div>
+            `;
+        }
+
+// Render a variable and its children recursively
+function renderVariable(v, depth = 0) {
+    const maxDepth = 3; // prevent too deep recursion
+    const hasChildren = v.children && v.children.length > 0;
+    const isExpandable = hasChildren && depth < maxDepth;
+    
+    // Determine display value
+    let valueDisplay = '';
+    if (v.value && v.value !== '') {
+        valueDisplay = escapeHtml(v.value);
+    } else if (v.type && v.type.startsWith('[]')) {
+        const len = v.len || 0;
+        const cap = v.cap || 0;
+        valueDisplay = `(${len}/${cap})`;
+    } else if (v.type && v.type.startsWith('map[')) {
+        const len = v.len || 0;
+        valueDisplay = `(${len} entries)`;
+    } else if (v.type && v.type.startsWith('struct')) {
+        valueDisplay = `{…}`;
+    } else {
+        valueDisplay = '?';
+    }
+
+    // Build header
+    const expandIcon = isExpandable 
+        ? `<span class="expand-icon" data-expanded="false">▶</span>` 
+        : `<span style="width:16px;display:inline-block;"></span>`;
+    
+    const header = `
+        <div class="var-header" data-var-id="${v.addr || Math.random()}">
+            ${expandIcon}
+            <span class="var-name">${escapeHtml(v.name || '')}</span>
+            <span class="var-value">${valueDisplay}</span>
+            <span class="var-type">${escapeHtml(v.type || '')}</span>
+        </div>
+    `;
+
+    // Render children if expandable
+    let childrenHtml = '';
+    if (isExpandable) {
+        childrenHtml = '<div class="var-children" style="display:none;">';
+        childrenHtml += v.children.map(child => renderVariable(child, depth + 1)).join('');
+        childrenHtml += '</div>';
+    }
+
+    return `<div class="var-item">${header}${childrenHtml}</div>`;
+}
+
+function refreshLocals() {
+    if (!locals || !locals.length) {
+        varsPanel.innerHTML = '<span style="color: #858585;">None</span>';
+        varCount.textContent = '';
+        return;
+    }
+
+    varCount.textContent = `(${locals.length})`;
+    varsPanel.innerHTML = `<div class="var-tree">${locals.map(v => renderVariable(v)).join('')}</div>`;
+
+    // Attach click handlers for expand/collapse
+    document.querySelectorAll('.var-header').forEach(header => {
+        header.addEventListener('click', (e) => {
+            // Don't toggle if clicking on the expand icon specifically (handled separately)
+            const icon = header.querySelector('.expand-icon');
+            if (icon && e.target === icon) {
+                e.stopPropagation();
+            }
+            const childrenDiv = header.parentElement.querySelector('.var-children');
+            const iconSpan = header.querySelector('.expand-icon');
+            if (childrenDiv) {
+                const isHidden = childrenDiv.style.display === 'none';
+                childrenDiv.style.display = isHidden ? 'block' : 'none';
+                if (iconSpan) {
+                    iconSpan.classList.toggle('expanded', isHidden);
+                }
+            }
+        });
+    });
+}
+
+        function refreshStack() {
+            if (!stack.length) {
+                stackPanel.innerHTML = '<span style="color: #858585;">Empty</span>';
+                return;
+            }
+
+            stackPanel.innerHTML = stack
+                .filter(f => !f.Err && !f.Bottom) // skip invalid/bottom frames
+                .map((f, idx) => {
+                    const selected = idx === currentFrame ? 'selected' : '';
+                    // Use lowercase property names as per JSON tags
+                    const funcName = f.function?.name || '??';
+                    const file = f.file || '';
+                    const line = f.line || 0;
+                    const location = file && line ? `${file}:${line}` : 'unknown location';
+                    return `<div class="stack-item stack-frame ${selected}" data-frame="${idx}">
+                        ${escapeHtml(funcName)} at ${escapeHtml(location)}
+                    </div>`;
+                }).join('');
+
+            // Reattach click handlers
+            document.querySelectorAll('.stack-frame').forEach(el => {
+                el.addEventListener('click', () => {
+                    const frameIdx = parseInt(el.dataset.frame);
+                    setCurrentFrame(frameIdx);
+                });
+            });
+        }
+
+        function refreshGoroutines() {
+            if (!goroutines.length) {
+                goroutinesPanel.innerHTML = '<span style="color: #858585;">None</span>';
+                goroutineCount.textContent = '';
+                return;
+            }
+            goroutineCount.textContent = `(${goroutines.length})`;
+            goroutinesPanel.innerHTML = goroutines.map(g => `
+                <div class="goroutine-item" data-gid="${g.ID}">
+                    Goroutine ${g.id} - ${g.status} ${g.currentLoc.file}:${g.currentLoc.line}
+                </div>
+            `).join('');
+        }
+
+        function refreshBreakpoints() {
+            if (!breakpoints || !breakpoints.length) {
+                breakpointsPanel.innerHTML = '<span style="color: #858585;">None</span>';
+                return;
+            }
+            breakpointsPanel.innerHTML = breakpoints.map(bp => {
+                // Use lowercase property names
+                const id = bp.id;
+                const file = bp.file || '';
+                const line = bp.line || 0;
+                const func = bp.functionName || '';
+                
+                // Build display string
+                let location = '';
+                if (file && line > 0) {
+                    const shortFile = file.split('/').pop();
+                    location = `${shortFile}:${line}`;
+                } else if (func) {
+                    location = func;
+                } else {
+                    location = 'unknown';
+                }
+                
+                // Add special marker for built-in breakpoints (negative IDs)
+                const builtin = id < 0 ? ' (built-in)' : '';
+                
+                return `<div class="bp-item">
+                    #${id} ${location}${builtin}
+                    ${id > 0 ? `<button onclick="removeBreakpoint(${id})" style="float:right; padding:2px 6px;">✕</button>` : ''}
+                </div>`;
+            }).join('');
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // ---------- Breakpoint Management ----------
+        function toggleBreakpoint(line) {
+            const existing = breakpoints.find(bp => bp.line === line && bp.file === currentSourceFile);
+            if (existing) {
+                sendCommand('clear', {id: existing.id});
+            } else {
+                sendCommand('break', {file: currentSourceFile, line: line});
+            }
+        }
+
+        window.removeBreakpoint = function(id) {
+            sendCommand('clear', {id: id});
+        };
+
+        // ---------- WebSocket Communication ----------
+        function connectWebSocket(sid) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.close();
+            }
+            const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/${sid}`;
+            ws = new WebSocket(wsUrl);
+            ws.onopen = () => {
+                setStatus(true, 'Connected');
+                log('WebSocket connected', 'success');
+                compileBtn.disabled = true;
+                stopBtn.disabled = false;
+                editor.setOption('readOnly', true); // lock editor
+                // fetch initial state
+                sendCommand('state');
+                sendCommand('breakpoints');
+                sendCommand('goroutines');
+                sendCommand('stack');
+                sendCommand('locals');
+            };
+            ws.onclose = (ev) => {
+                setStatus(false, 'Disconnected');
+                log(`WebSocket closed: ${ev.reason || 'normal'}`, 'error');
+                resetUI();
+            };
+            ws.onerror = (err) => {
+                log('WebSocket error', 'error');
+                console.error(err);
+            };
+            ws.onmessage = (event) => {
+                try {
+                    const msg = JSON.parse(event.data);
+                    handleResponse(msg);
+                } catch (e) {
+                    log('Invalid message received', 'error');
+                }
+            };
+        }
+
+        function handleResponse(msg) {
+            if (msg.error) {
+                log(`Error: ${msg.error}`, 'error');
+                return;
+            }
+            switch (msg.type) {
+                case 'state':
+                    debugState = msg.data;
+                    updateUIAfterState();
+                    break;
+                case 'locals':
+                    locals = msg.data || [];
+                    refreshLocals();
+                    break;
+                case 'stack':
+                    stack = msg.data || [];
+                    refreshStack();
+                    break;
+                case 'goroutines':
+                    goroutines = msg.data || [];
+                    refreshGoroutines();
+                    break;
+                case 'breakpoints':
+                    breakpoints = msg.data || [];
+                    refreshBreakpoints();
+                    updateBreakpointGutter();
+                    break;
+                case 'break':
+                case 'clear':
+                    // Refresh breakpoints list
+                    sendCommand('breakpoints');
+                    break;
+                case 'continue':
+                case 'next':
+                case 'step':
+                case 'stepout':
+                case 'restart':
+                    sendCommand('state');
+                    sendCommand('locals');
+                    sendCommand('stack');
+                    break;
+                default:
+                    log(`Response for ${msg.type}: ${JSON.stringify(msg.data)}`, 'info');
+            }
+        }
+
+        function updateBreakpointGutter() {
+            editor.clearGutter('breakpoints');
+            breakpoints.forEach(bp => {
+                // Only show user breakpoints (positive IDs) in our source file
+                if (bp.id > 0 && bp.file === currentSourceFile && bp.line) {
+                    const marker = document.createElement('div');
+                    marker.className = 'breakpoint-gutter';
+                    marker.textContent = '●';
+                    editor.setGutterMarker(bp.line - 1, 'breakpoints', marker);
+                }
+            });
+        }
+
+        function sendCommand(cmd, args = {}) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                log('Not connected to debug session', 'error');
+                return;
+            }
+            ws.send(JSON.stringify({command: cmd, args: args}));
+        }
+
+        function resetUI() {
+            sessionId = null;
+            debugState = null;
+            locals = [];
+            stack = [];
+            goroutines = [];
+            breakpoints = [];
+            programExited = false;
+            compileBtn.disabled = false;
+            enableDebugControls(false);
+            varsPanel.innerHTML = 'None';
+            stackPanel.innerHTML = 'Empty';
+            goroutinesPanel.innerHTML = 'None';
+            breakpointsPanel.innerHTML = 'None';
+            varCount.textContent = '';
+            goroutineCount.textContent = '';
+            positionInfo.textContent = '';
+            editor.clearGutter('breakpoints');
+            editor.setOption('readOnly', false); // unlock editor
+            if (currentLineMarker !== null) {
+                editor.removeLineClass(currentLineMarker, 'background');
+                currentLineMarker = null;
+            }
+        }
+
+        function setCurrentFrame(idx) {
+            currentFrame = idx;
+            refreshStack();
+            // Fetch locals for that frame (by evaluating with frame)
+            // Not directly supported by current command set; you'd need to extend backend.
+        }
+
+        // ---------- Compile & Start Session ----------
+        async function compile() {
+            const code = editor.getValue();
+            compileBtn.disabled = true;
+            log('Compiling...', 'info');
+            try {
+                const resp = await fetch(`${API_BASE}/build`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({code: code})
+                });
+                const data = await resp.json();
+                if (!resp.ok) {
+                    throw new Error(data.error || 'Compilation failed');
+                }
+                if (data.formatted && data.formatted !== code) {
+                    editor.setValue(data.formatted);
+                }
+                sessionId = data.session_id;
+                log(`Session started: ${sessionId}`, 'success');
+                connectWebSocket(sessionId);
+            } catch (err) {
+                log(`Compile error: ${err.message}`, 'error');
+                compileBtn.disabled = false;
+            }
+        }
+
+        function disconnect() {
+            if (ws) ws.close();
+            resetUI();
+            setStatus(false, 'Disconnected');
+        }
+
+        function restart() {
+            sendCommand('restart');
+        }
+
+        // ---------- Event Listeners ----------
+        compileBtn.addEventListener('click', compile);
+        continueBtn.addEventListener('click', () => sendCommand('continue'));
+        nextBtn.addEventListener('click', () => sendCommand('next'));
+        stepBtn.addEventListener('click', () => sendCommand('step'));
+        stepOutBtn.addEventListener('click', () => sendCommand('stepout'));
+        restartBtn.addEventListener('click', restart);
+        stopBtn.addEventListener('click', disconnect);
+
+        // Section toggling
+        document.querySelectorAll('.panel-header').forEach(header => {
+            header.addEventListener('click', () => {
+                const content = header.nextElementSibling;
+                content.style.display = content.style.display === 'none' ? 'block' : 'none';
+                header.querySelector('span').textContent = 
+                    (content.style.display === 'none' ? '▶' : '▼') + 
+                    header.querySelector('span').textContent.slice(1);
+            });
+        });
+
+        // Expose for inline handlers
+        window.compile = compile;
+        window.sendCommand = sendCommand;
+        window.disconnect = disconnect;
+        window.restart = restart;
+    })();
+</script>
+</body>
+</html>
