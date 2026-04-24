@@ -1,11 +1,13 @@
 package manager
 
 import (
+	"bufio"
 	"context"
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 	"github.com/gin-gonic/gin"
 	"github.com/go-delve/delve/service/api"
+	"io"
 	"net/http"
 	"time"
 )
@@ -70,6 +72,15 @@ func (m *Manager) HandleSession(c *gin.Context) {
 
 	m.logger.Info("websocket client connected", "session_id", sessionID)
 
+	stdout, err := sess.Container.StreamLogs(ctx)
+	if err != nil {
+		m.logger.Error("read stdout", "error", err)
+	}
+	go func() {
+		defer stdout.Close()
+		writeStdoutToWs(ctx, conn, stdout)
+	}()
+
 	for {
 		var req CommandRequest
 		if err := wsjson.Read(ctx, conn, &req); err != nil {
@@ -80,7 +91,7 @@ func (m *Manager) HandleSession(c *gin.Context) {
 			break
 		}
 
-		m.logger.Info("received debugging command", 
+		m.logger.Info("received debugging command",
 			"session_id", sessionID,
 			"command", req.Command,
 		)
@@ -101,4 +112,18 @@ func (m *Manager) HandleSession(c *gin.Context) {
 	}
 
 	m.logger.Info("session closed", "session_id", sessionID)
+}
+
+func writeStdoutToWs(
+	ctx context.Context,
+	conn *websocket.Conn,
+	reader io.Reader,
+) {
+	scanner := bufio.NewScanner(reader)
+	for scanner.Scan() {
+		wsjson.Write(ctx, conn, CommandResponse{
+			Data: scanner.Text(),
+			Type: "stdout",
+		})
+	}
 }

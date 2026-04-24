@@ -11,7 +11,7 @@ type Config struct {
 	Sandbox SandboxConfig `yaml:"sandbox"`
 	Server  ServerConfig  `yaml:"server"`
 	Builder BuilderConfig `yaml:"builder"`
-	Log		LogConfig     `yaml:"log"`
+	Log     LogConfig     `yaml:"log"`
 }
 
 type SandboxConfig struct {
@@ -36,8 +36,8 @@ type BuilderConfig struct {
 }
 
 type LogConfig struct {
-	Level   string        `yaml:"level"`
-	Handler string        `yaml:"handler"`
+	Level   string `yaml:"level"`
+	Handler string `yaml:"handler"`
 }
 
 func MustLoad() (cfg Config) {

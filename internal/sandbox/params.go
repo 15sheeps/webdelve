@@ -23,6 +23,9 @@ func CreateOptions(cfg config.SandboxConfig) client.ContainerCreateOptions {
 			AttachStdin:  false,
 			AttachStdout: true,
 			AttachStderr: true,
+			// this will allow to attach standard streams to a tty
+			// and copy data directly using ContainerLogs()
+			Tty: true,
 		},
 		HostConfig: &container.HostConfig{
 			PortBindings: network.PortMap{

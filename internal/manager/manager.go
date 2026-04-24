@@ -10,14 +10,14 @@ type Manager struct {
 	pool     *sandbox.SandboxPool
 	sessions map[string]*Session
 	mu       sync.RWMutex
-	logger	 *slog.Logger
+	logger   *slog.Logger
 }
 
 func New(pool *sandbox.SandboxPool, logger *slog.Logger) *Manager {
 	return &Manager{
 		sessions: make(map[string]*Session),
 		pool:     pool,
-		logger:	  logger,
+		logger:   logger,
 	}
 }
 

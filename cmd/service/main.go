@@ -4,12 +4,12 @@ import (
 	"github.com/15sheeps/webdelve/internal/builder"
 	"github.com/15sheeps/webdelve/internal/config"
 	"github.com/15sheeps/webdelve/internal/logger"
-	"github.com/15sheeps/webdelve/internal/sandbox"
 	"github.com/15sheeps/webdelve/internal/manager"
+	"github.com/15sheeps/webdelve/internal/sandbox"
 
-	"github.com/gin-gonic/gin"
-	sloggin "github.com/gin-contrib/slog"
 	limits "github.com/gin-contrib/size"
+	sloggin "github.com/gin-contrib/slog"
+	"github.com/gin-gonic/gin"
 
 	"context"
 	"log/slog"
@@ -51,12 +51,12 @@ func main() {
 	builderInstance := builder.NewBuilder(cfg.Builder, poolInstance, managerInstance)
 
 	router := gin.New()
-  
+
 	// middleware to use baseLogger in gin
 	router.Use(sloggin.SetLogger(
-	    sloggin.WithLogger(func(c *gin.Context, l *slog.Logger) *slog.Logger {
-	        return baseLogger
-	    }),
+		sloggin.WithLogger(func(c *gin.Context, l *slog.Logger) *slog.Logger {
+			return baseLogger
+		}),
 	))
 	router.Use(corsMiddleware())
 	router.Use(gin.Recovery())

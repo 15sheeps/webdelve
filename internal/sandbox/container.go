@@ -96,3 +96,10 @@ func (c *Container) Exec(ctx context.Context, cmd []string) (io.Reader, error) {
 
 	return attachResp.Reader, nil
 }
+
+func (c *Container) StreamLogs(ctx context.Context) (io.ReadCloser, error) {
+	return c.cli.ContainerLogs(ctx, c.id, client.ContainerLogsOptions{
+		ShowStdout: true,
+		Follow:     true,
+	})
+}

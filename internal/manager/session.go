@@ -32,7 +32,7 @@ func (m *Manager) StartSession(
 
 	m.logger.Info("delve server started",
 		"host_port", hostPort,
-		"container_id", container.ID(), 
+		"container_id", container.ID(),
 	)
 
 	sess := &Session{
@@ -56,6 +56,7 @@ func clientConnRetry(ctx context.Context, addr string) (*rpc2.RPCClient, error) 
 			if _, err := client.GetState(); err == nil {
 				return client, nil
 			}
+			client.Disconnect(false)
 		}
 
 		select {

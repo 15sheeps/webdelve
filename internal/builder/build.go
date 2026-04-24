@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/15sheeps/webdelve/internal/config"
-	"github.com/15sheeps/webdelve/internal/sandbox"
 	"github.com/15sheeps/webdelve/internal/manager"
+	"github.com/15sheeps/webdelve/internal/sandbox"
 	"go/format"
 	"go/parser"
 	"go/token"
@@ -51,7 +51,6 @@ func (b *Builder) ValidateBasic(src []byte) error {
 		"syscall",
 		"unsafe",
 		"net/http",
-		"runtime",
 	}
 
 	for _, imp := range forbiddenImports {

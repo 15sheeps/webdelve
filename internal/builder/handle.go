@@ -11,9 +11,9 @@ type BuildRequest struct {
 }
 
 type BuildResponse struct {
-	Formatted string `json:"formatted",omitempty`
-	SessionID string `json:"session_id",omitempty`
-	Error     string `json:"error",omitempty`
+	Formatted string `json:"formatted,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
+	Error     string `json:"error,omitempty"`
 	exePath   string
 }
 
@@ -35,7 +35,7 @@ func (b *Builder) Handle(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, BuildResponse{Error: err.Error()})
 		return
 	}
-	// defer Cleanup(buildRes)
+	defer Cleanup(buildRes)
 	// get container from the pool
 	container, err := b.pool.Get(ctx)
 	if err != nil {

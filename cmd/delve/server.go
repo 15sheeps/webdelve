@@ -46,7 +46,7 @@ watchLoop:
 			panic(err)
 		}
 	}
-	println("starting delve server...")
+
 	// start delve server
 	// dlv exec ./program --listen=addr --headless --api-version=2 --accept-multiclient
 	listener, err := net.Listen("tcp", listenAddr)

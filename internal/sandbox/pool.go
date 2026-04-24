@@ -119,8 +119,8 @@ func (p *SandboxPool) Get(ctx context.Context) (*Container, error) {
 				return cont, nil
 			}
 
-			p.logger.Info("cleaning up unhealthy container", 
-				"container_id", cont.ID(), 
+			p.logger.Info("cleaning up unhealthy container",
+				"container_id", cont.ID(),
 				"error", err,
 			)
 			p.cleanupContainer(cont)
@@ -143,8 +143,8 @@ func (p *SandboxPool) cleanupContainer(cont *Container) {
 	defer cancel()
 
 	if err := cont.remove(ctx); err != nil {
-		p.logger.Error("failed to remove container", 
-			"container_id", cont.id, 
+		p.logger.Error("failed to remove container",
+			"container_id", cont.id,
 			"error", err,
 		)
 	}
