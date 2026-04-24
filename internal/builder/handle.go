@@ -1,11 +1,9 @@
 package builder
 
 import (
-	"log"
 	"context"
-	"net/http"
 	"github.com/gin-gonic/gin"
-	"github.com/15sheeps/webdelve/internal/session"
+	"net/http"
 )
 
 type BuildRequest struct {
@@ -15,7 +13,7 @@ type BuildRequest struct {
 type BuildResponse struct {
 	Formatted string `json:"formatted",omitempty`
 	SessionID string `json:"session_id",omitempty`
-	Error	  string `json:"error",omitempty`
+	Error     string `json:"error",omitempty`
 	exePath   string
 }
 
@@ -55,7 +53,7 @@ func (b *Builder) Handle(c *gin.Context) {
 		return
 	}
 	// start delve server in the container
-	sess, err := session.Start(ctx, container, "/workdir/program")
+	sess, err := b.manager.StartSession(ctx, container, "/sandbox/program")
 	if err != nil {
 		b.pool.Put(container)
 		c.JSON(http.StatusInternalServerError, BuildResponse{
@@ -63,12 +61,6 @@ func (b *Builder) Handle(c *gin.Context) {
 		})
 		return
 	}
-
-	b.manager.Add(sess)
-
-	log.Printf("Session %s created, container %s, port: %s\n",
-		sess.ID, container.ID(), container.HostPort(),
-	)
 
 	buildRes.SessionID = sess.ID
 	c.JSON(http.StatusOK, buildRes)

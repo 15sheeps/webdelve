@@ -52,7 +52,7 @@ func TestValidateBasic(t *testing.T) {
 			code:    "package notmain\n\nfunc main() {}",
 			wantErr: true,
 			errMsg:  "package must be main",
-		},	
+		},
 	}
 
 	for _, tt := range tests {
@@ -105,13 +105,13 @@ func main() {
 			wantErr: true,
 			errMsg:  "format error",
 		},
-/*		{
-			name:    "no package",
-			code:    "func main() {}",
-			wantErr: true,
-			errMsg:  "package must be main",
-		},	
-*/		{
+		/*		{
+					name:    "no package",
+					code:    "func main() {}",
+					wantErr: true,
+					errMsg:  "package must be main",
+				},
+		*/{
 			name:    "compilation error",
 			code:    "package main\n\nfunc main() { undefinedVariable }",
 			wantErr: true,

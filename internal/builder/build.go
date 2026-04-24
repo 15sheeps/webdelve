@@ -1,70 +1,51 @@
 package builder
 
 import (
-	"io"
-	"os"
-	"fmt"
-	"time"
 	"bytes"
-	"errors"
-	"strings"
 	"context"
-	"os/exec"
-	"go/token"
+	"errors"
+	"fmt"
+	"github.com/15sheeps/webdelve/internal/config"
+	"github.com/15sheeps/webdelve/internal/sandbox"
+	"github.com/15sheeps/webdelve/internal/manager"
 	"go/format"
 	"go/parser"
-	"path/filepath"
+	"go/token"
 	"golang.org/x/sync/semaphore"
-	"github.com/15sheeps/webdelve/internal/sandbox"
-	"github.com/15sheeps/webdelve/internal/session"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 )
 
-type Config struct {
-	ConcurrentLimit int64 // max amount of build processes running at once
-	BuildTimeout    time.Duration
-	MaxSourceSize   int
-	MaxBinarySize   int
-}
-
-func DefaultConfig() Config {
-	return Config{
-		ConcurrentLimit: 10,
-		BuildTimeout:    10 * time.Second,
-		MaxSourceSize:   1 << 20,
-		MaxBinarySize:   20 << 20,
-	}
-}
-
 type Builder struct {
-	cfg			   Config
-	pool 		   *sandbox.SandboxPool
-	manager		   *session.Manager
-	sem			   *semaphore.Weighted
+	cfg     config.BuilderConfig
+	pool    *sandbox.SandboxPool
+	manager *manager.Manager
+	sem     *semaphore.Weighted
 }
 
 func NewBuilder(
-	cfg Config,
+	cfg config.BuilderConfig,
 	pool *sandbox.SandboxPool,
-	manager *session.Manager,
+	manager *manager.Manager,
 ) *Builder {
 	if cfg.ConcurrentLimit <= 0 {
 		cfg.ConcurrentLimit = 1
 	}
-	
+
 	return &Builder{
-		pool:           pool,
-		cfg:        	cfg,
+		pool:    pool,
+		cfg:     cfg,
 		manager: manager,
-		sem: semaphore.NewWeighted(cfg.ConcurrentLimit),
+		sem:     semaphore.NewWeighted(cfg.ConcurrentLimit),
 	}
 }
 
 func (b *Builder) ValidateBasic(src []byte) error {
-	if len(src) > b.cfg.MaxSourceSize {
-		return fmt.Errorf("source code too large: %d (max %d)", len(src), b.cfg.MaxSourceSize)
-	}
-	// validating imports 
-	// TODO: make it able to use these packages or at least parse source instead of string.Contains  
+	// validating imports
+	// TODO: make it able to use these packages or at least parse source instead of string.Contains
 	forbiddenImports := []string{
 		"os/exec",
 		"syscall",
@@ -104,7 +85,7 @@ func (b *Builder) Build(ctx context.Context, src []byte) (*BuildResponse, error)
 	if err != nil {
 		return nil, fmt.Errorf("format error: %w", err)
 	}
-	// make temp directory build-XXXXXXXXX 
+	// make temp directory build-XXXXXXXXX
 	tmpDir, err := os.MkdirTemp("", "build-*")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp dir: %w", err)
@@ -138,7 +119,7 @@ func (b *Builder) build(ctx context.Context, dir, output string) error {
 	buildCtx, cancel := context.WithTimeout(ctx, b.cfg.BuildTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(buildCtx, "go", "build", "-o", output, "-gcflags=all=-N -l","main.go")
+	cmd := exec.CommandContext(buildCtx, "go", "build", "-o", output, "-gcflags=all=-N -l", "main.go")
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(),
 		"GOOS=linux",
@@ -174,16 +155,16 @@ func Upload(ctx context.Context, container *sandbox.Container, exePath string) e
 	}
 
 	// copy binary to the container
-	if err := container.CopyFileTo(ctx, "/workdir/program", data); err != nil {
+	if err := container.CopyFileTo(ctx, "/sandbox/program", data); err != nil {
 		return fmt.Errorf("failed to copy binary to container: %w", err)
 	}
 
 	// chmod +x
-	reader, err := container.Exec(ctx, []string{"chmod", "+x", "/workdir/program"})
+	reader, err := container.Exec(ctx, []string{"chmod", "+x", "/sandbox/program"})
 	if err != nil {
 		return fmt.Errorf("failed to chmod binary: %w", err)
 	}
-	io.Copy(io.Discard, reader)
+	go io.Copy(io.Discard, reader)
 
 	return nil
 }

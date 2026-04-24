@@ -1,12 +1,12 @@
 package sandbox
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"fmt"
 	"github.com/moby/moby/client"
 	"io"
-	"bytes"
-	"archive/tar"
 )
 
 // Container represents running container
@@ -59,21 +59,21 @@ func (c *Container) CopyFileTo(ctx context.Context, path string, src []byte) err
 	if err := tw.WriteHeader(hdr); err != nil {
 		return err
 	}
-	
+
 	if _, err := tw.Write(src); err != nil {
 		return err
-	}	
+	}
 
 	if err := tw.Close(); err != nil {
 		return err
 	}
-	
+
 	_, err := c.cli.CopyToContainer(ctx, c.id, client.CopyToContainerOptions{
-		DestinationPath: "/",
-		Content:         buf,
+		DestinationPath:           "/",
+		Content:                   buf,
 		AllowOverwriteDirWithFile: true,
 	})
-	
+
 	return err
 }
 

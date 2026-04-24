@@ -2,37 +2,20 @@ package sandbox
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"github.com/15sheeps/webdelve/internal/config"
 	"github.com/moby/moby/client"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
-	"errors"
 )
-
-// Config holds pool parameters
-type Config struct {
-	PoolLimit     int // max amount of containers (running + idle)
-	StartTimeout  time.Duration
-	RemoveTimeout time.Duration
-	HealthTimeout time.Duration
-	RetryBackoff  time.Duration
-}
-
-func DefaultConfig() Config {
-	return Config{
-		PoolLimit:     5,
-		StartTimeout:  20 * time.Second,
-		HealthTimeout: 2 * time.Second,
-		RemoveTimeout: 20 * time.Second,
-		RetryBackoff:  time.Second,
-	}
-}
 
 // Sandbox manages a pool of warm containers
 type SandboxPool struct {
 	client *client.Client // docker client
-	cfg    Config
+	cfg    config.SandboxConfig
+	logger *slog.Logger
 
 	pool chan *Container // pool of idle containers
 	sem  chan struct{}   // limits amount of containers (running + idle)
@@ -44,11 +27,11 @@ type SandboxPool struct {
 	stop      chan struct{}
 }
 
-func NewSandboxPool(ctx context.Context, cfg Config) (*SandboxPool, error) {
+func NewSandboxPool(ctx context.Context, cfg config.SandboxConfig, logger *slog.Logger) (*SandboxPool, error) {
 	if cfg.PoolLimit <= 0 {
 		return nil, errors.New("pool limit must be positive")
 	}
-	
+
 	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize docker client: %w", err)
@@ -57,6 +40,7 @@ func NewSandboxPool(ctx context.Context, cfg Config) (*SandboxPool, error) {
 	return &SandboxPool{
 		client: dockerClient,
 		cfg:    cfg,
+		logger: logger,
 		pool:   make(chan *Container, cfg.PoolLimit),
 		sem:    make(chan struct{}, cfg.PoolLimit),
 		stop:   make(chan struct{}),
@@ -77,7 +61,7 @@ func (p *SandboxPool) StartWorkers() {
 // backoff waits for the configured backoff duration or until shutdown.
 func (p *SandboxPool) backoff() {
 	select {
-	case <-time.After(p.cfg.RetryBackoff):
+	case <-time.After(time.Second):
 	case <-p.stop:
 	}
 }
@@ -93,9 +77,9 @@ func (p *SandboxPool) worker() {
 			startCtx, cancel := context.WithTimeout(context.Background(), p.cfg.StartTimeout)
 			cont, err := p.startContainer(startCtx)
 			cancel()
-			
+
 			if err != nil {
-				log.Printf("failed to start container: %v\n", err)
+				p.logger.Error("failed to start container", "error", err)
 				<-p.sem
 				p.backoff()
 				continue
@@ -127,7 +111,7 @@ func (p *SandboxPool) Get(ctx context.Context) (*Container, error) {
 		case <-p.stop:
 			return nil, errors.New("pool is shutting down")
 		case cont := <-p.pool:
-			// verify container is still healthy
+			// verify container is healthy
 			healthCtx, cancel := context.WithTimeout(ctx, p.cfg.HealthTimeout)
 			err := cont.HealthCheck(healthCtx)
 			cancel()
@@ -135,7 +119,10 @@ func (p *SandboxPool) Get(ctx context.Context) (*Container, error) {
 				return cont, nil
 			}
 
-			log.Printf("cleaning up unhealthy container %s: %v", cont.ID(), err)
+			p.logger.Info("cleaning up unhealthy container", 
+				"container_id", cont.ID(), 
+				"error", err,
+			)
 			p.cleanupContainer(cont)
 		}
 	}
@@ -156,7 +143,10 @@ func (p *SandboxPool) cleanupContainer(cont *Container) {
 	defer cancel()
 
 	if err := cont.remove(ctx); err != nil {
-		log.Printf("failed to remove container %s: %v", cont.id, err)
+		p.logger.Error("failed to remove container", 
+			"container_id", cont.id, 
+			"error", err,
+		)
 	}
 }
 
@@ -190,13 +180,14 @@ func (p *SandboxPool) Size() int {
 
 // startContainer creates and starts new docker container
 func (p *SandboxPool) startContainer(ctx context.Context) (cont *Container, err error) {
-	createResp, err := p.client.ContainerCreate(ctx, GetSandboxConfigs())
+	createOpts := CreateOptions(p.cfg)
+	createResp, err := p.client.ContainerCreate(ctx, createOpts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create container: %w", err)
 	}
 
 	for _, warning := range createResp.Warnings {
-		log.Printf("container create warning: %s", warning)
+		p.logger.Warn(warning)
 	}
 	id := createResp.ID
 

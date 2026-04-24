@@ -1,16 +1,16 @@
 package sandbox
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/moby/moby/client"
 	"io"
-	"bytes"
 	"os"
 	"strings"
 	"testing"
 	"time"
-	"github.com/moby/moby/client"
-	"github.com/docker/docker/pkg/stdcopy"
 )
 
 func TestNewSandboxPool(t *testing.T) {
@@ -249,14 +249,14 @@ func TestContainerCopyTo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("exec failed: %v", err)
 	}
-    stdout.Reset()
-    stderr.Reset()
+	stdout.Reset()
+	stderr.Reset()
 
 	_, err = stdcopy.StdCopy(&stdout, &stderr, reader)
 	if err != nil {
-	    t.Fatalf("failed to read: %v", err)
+		t.Fatalf("failed to read: %v", err)
 	}
-	output := stdout.Bytes() 
+	output := stdout.Bytes()
 
 	if string(output) != string(testContent) {
 		t.Errorf("expected %q, got %q", string(testContent), string(output))
@@ -315,7 +315,6 @@ func TestPoolClose(t *testing.T) {
 	if !waitForPoolSize(t, pool, 2, 20*time.Second) {
 		t.Fatal("pool never filled")
 	}
-
 
 	var containerIDs []string
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)

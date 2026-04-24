@@ -1,0 +1,21 @@
+sandbox:
+    image: "webdelve:latest"
+    pool_limit: 5
+    start_timeout: 20s
+    remove_timeout: 20s
+    health_timeout: 2s
+    memory_limit: 134217728 # 128 MB
+
+server:
+    max_source_size: 65536 # 64 KB
+    address: ":8080"
+    rw_timeout: 10s
+
+builder:
+    concurrent_limit: 10 
+    build_timeout: 10s
+    max_binary_size: 31457280 # 3 MB
+
+log:
+    level: "debug"
+    handler: "json"
