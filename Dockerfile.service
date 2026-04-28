@@ -1,0 +1,31 @@
+FROM golang:latest AS build-stage
+
+# build the service
+WORKDIR /build
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+RUN CGO_ENABLED=0 go build -o /service ./cmd/service
+
+# copy the service from the build stage
+FROM alpine:latest AS release-stage
+
+RUN apk add --no-cache ca-certificates && update-ca-certificates
+
+COPY --from=build-stage /service /service
+COPY --from=build-stage /usr/local/go /usr/local/go
+
+# environment for running 'go build'
+ENV GOROOT=/usr/local/go
+ENV GOPATH=/go
+ENV PATH="/go/bin:/usr/local/go/bin:${PATH}"
+ENV CGO_ENABLED=0
+# no module downloading for now
+ENV GOPROXY=off
+ENV GOOS=linux
+ENV GOARCH=amd64
+
+EXPOSE 8080
+ENTRYPOINT ["./service"]

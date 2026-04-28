@@ -10,16 +10,14 @@ import (
 
 var (
 	delvePort = network.MustParsePort("2345/tcp")
-	localhost = netip.MustParseAddr("127.0.0.1")
+	localhost = netip.MustParseAddr("0.0.0.0")
 )
 
 func CreateOptions(cfg config.SandboxConfig) client.ContainerCreateOptions {
 	return client.ContainerCreateOptions{
 		Config: &container.Config{
-			Image: cfg.Image,
-			ExposedPorts: network.PortSet{
-				delvePort: struct{}{},
-			},
+			Image:        cfg.Image,
+			ExposedPorts: network.PortSet{delvePort: struct{}{}},
 			AttachStdin:  false,
 			AttachStdout: true,
 			AttachStderr: true,

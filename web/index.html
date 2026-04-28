@@ -271,6 +271,7 @@ func main() {
 
 <div class="output-panel" id="output"></div>
 
+<!-- полный фарш, надо переписывать -->
 <script>
     (function(){
         "use strict";
@@ -278,7 +279,7 @@ func main() {
         const API_BASE = window.location.origin;
         const SOURCE_FILE = '/main.go';
 
-        // ---------- State ----------
+        // page state
         let editor;
         let ws = null;
         let sessionId = null;
@@ -293,7 +294,7 @@ func main() {
         let currentSourceFile = 'main.go';
         let exitMessageShown = false;
 
-        // UI Elements
+        // UI elements
         const compileBtn = document.getElementById('compileBtn');
         const continueBtn = document.getElementById('continueBtn');
         const nextBtn = document.getElementById('nextBtn');
@@ -306,7 +307,7 @@ func main() {
         const outputDiv = document.getElementById('output');
         const positionInfo = document.getElementById('positionInfo');
 
-        // Panels
+        // panels
         const varsPanel = document.getElementById('varsPanel');
         const stackPanel = document.getElementById('stackPanel');
         const goroutinesPanel = document.getElementById('goroutinesPanel');
@@ -325,7 +326,7 @@ func main() {
             gutters: ['CodeMirror-linenumbers', 'breakpoints']
         });
 
-        // Add breakpoint gutter marker
+        // breakpoint gutter marker
         editor.on('gutterClick', function(cm, n, gutter) {
             if (gutter !== 'breakpoints') return;
             const info = cm.lineInfo(n);
@@ -333,7 +334,7 @@ func main() {
             toggleBreakpoint(line);
         });
 
-        // ---------- UI Helpers ----------
+        // UI helpers
         function setStatus(connected, text) {
             statusDot.className = 'status-dot' + (connected ? ' connected' : '');
             statusText.textContent = text || (connected ? 'Connected' : 'Disconnected');
@@ -368,24 +369,24 @@ func main() {
                 stepOutBtn.disabled = true;
             }
 
-            // Update position info and highlight current line
+            // update position info and highlight current line
             const thread = debugState.currentThread;
             if (thread && thread.file && thread.line) {
                 currentSourceFile = thread.file;
                 positionInfo.textContent = `${thread.file}:${thread.line}`;
 
-                // Only highlight if the file is our main source (main.go)
+                // only highlight if the source file is main.go
                 if (thread.file.endsWith(SOURCE_FILE)) {
-                    // Clear previous marker
+                    // clear previous marker
                     if (currentLineMarker !== null) {
                         editor.removeLineClass(currentLineMarker, 'background', 'current-line');
                     }
-                    // Add new marker (line numbers are 1-based in Delve, 0-based in CodeMirror)
+                    // add new marker (line numbers are 1-based in Delve, 0-based in CodeMirror)
                     currentLineMarker = editor.addLineClass(thread.line - 1, 'background', 'current-line');
-                    // Scroll to the line
+                    // scroll to the line
                     editor.scrollIntoView({line: thread.line - 1, ch: 0}, 100);
                 } else {
-                    // If file is not main.go, clear marker
+                    // if file is not main.go, clear marker
                     if (currentLineMarker !== null) {
                         editor.removeLineClass(currentLineMarker, 'background', 'current-line');
                         currentLineMarker = null;
@@ -399,7 +400,7 @@ func main() {
                 }
             }
 
-            // Refresh data panels
+            // refresh data panels
             refreshLocals();
             refreshStack();
             refreshGoroutines();
@@ -414,7 +415,7 @@ func main() {
             if (v.value && v.value !== '') {
                 valueDisplay = escapeHtml(v.value);
             } 
-            // Handle slices (type starts with "[]")
+            // handle slices (type starts with "[]")
             else if (v.type && v.type.startsWith('[]')) {
                 const len = v.len || 0;
                 const cap = v.cap || 0;
@@ -425,7 +426,7 @@ func main() {
                     valueDisplay = `(len=${len} cap=${cap}) []`;
                 }
             } 
-            // Handle other complex types (structs, maps, etc.)
+            // handle other complex types (structs, maps, etc.)
             else if (v.children && v.children.length) {
                 valueDisplay = '{ ... }'; // placeholder for expandable tree
             } 
@@ -442,13 +443,13 @@ func main() {
             `;
         }
 
-// Render a variable and its children recursively
+// render a variable and its children recursively
 function renderVariable(v, depth = 0) {
     const maxDepth = 3; // prevent too deep recursion
     const hasChildren = v.children && v.children.length > 0;
     const isExpandable = hasChildren && depth < maxDepth;
     
-    // Determine display value
+    // determine display value
     let valueDisplay = '';
     if (v.value && v.value !== '') {
         valueDisplay = escapeHtml(v.value);
@@ -465,7 +466,7 @@ function renderVariable(v, depth = 0) {
         valueDisplay = '?';
     }
 
-    // Build header
+    // build header
     const expandIcon = isExpandable 
         ? `<span class="expand-icon" data-expanded="false">▶</span>` 
         : `<span style="width:16px;display:inline-block;"></span>`;
@@ -479,7 +480,7 @@ function renderVariable(v, depth = 0) {
         </div>
     `;
 
-    // Render children if expandable
+    // render children if expandable
     let childrenHtml = '';
     if (isExpandable) {
         childrenHtml = '<div class="var-children" style="display:none;">';
@@ -500,10 +501,10 @@ function refreshLocals() {
     varCount.textContent = `(${locals.length})`;
     varsPanel.innerHTML = `<div class="var-tree">${locals.map(v => renderVariable(v)).join('')}</div>`;
 
-    // Attach click handlers for expand/collapse
+    // attach click handlers for expand/collapse
     document.querySelectorAll('.var-header').forEach(header => {
         header.addEventListener('click', (e) => {
-            // Don't toggle if clicking on the expand icon specifically (handled separately)
+            // don't toggle if clicking on the expand icon specifically (handled separately)
             const icon = header.querySelector('.expand-icon');
             if (icon && e.target === icon) {
                 e.stopPropagation();
@@ -531,7 +532,7 @@ function refreshLocals() {
                 .filter(f => !f.Err && !f.Bottom) // skip invalid/bottom frames
                 .map((f, idx) => {
                     const selected = idx === currentFrame ? 'selected' : '';
-                    // Use lowercase property names as per JSON tags
+                    // use lowercase property names as per JSON tags
                     const funcName = f.function?.name || '??';
                     const file = f.file || '';
                     const line = f.line || 0;
@@ -541,7 +542,7 @@ function refreshLocals() {
                     </div>`;
                 }).join('');
 
-            // Reattach click handlers
+            // reattach click handlers
             document.querySelectorAll('.stack-frame').forEach(el => {
                 el.addEventListener('click', () => {
                     const frameIdx = parseInt(el.dataset.frame);
@@ -570,7 +571,7 @@ function refreshLocals() {
                 return;
             }
             breakpointsPanel.innerHTML = breakpoints.map(bp => {
-                // Use lowercase property names
+                // use lowercase property names
                 const id = bp.id;
                 const file = bp.file || '';
                 const line = bp.line || 0;
@@ -587,7 +588,7 @@ function refreshLocals() {
                     location = 'unknown';
                 }
                 
-                // Add special marker for built-in breakpoints (negative IDs)
+                // add special marker for built-in breakpoints (negative IDs)
                 const builtin = id < 0 ? ' (built-in)' : '';
                 
                 return `<div class="bp-item">
@@ -603,7 +604,7 @@ function refreshLocals() {
             return div.innerHTML;
         }
 
-        // ---------- Breakpoint Management ----------
+        // breakpoint management
         function toggleBreakpoint(line) {
             const existing = breakpoints.find(bp => bp.line === line && bp.file === currentSourceFile);
             if (existing) {
@@ -617,7 +618,7 @@ function refreshLocals() {
             sendCommand('clear', {id: id});
         };
 
-        // ---------- WebSocket Communication ----------
+        // websocket communication
         function connectWebSocket(sid) {
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.close();
@@ -664,7 +665,7 @@ function refreshLocals() {
                         log(msg.error, 'error');
                         exitMessageShown = true;
                     }
-                    // Still mark the program as exited
+                    // still mark the program as exited
                     programExited = true;
                     updateUIAfterState();
                     return;
@@ -700,7 +701,7 @@ function refreshLocals() {
                     break;
                 case 'break':
                 case 'clear':
-                    // Refresh breakpoints list
+                    // refresh breakpoints list
                     sendCommand('breakpoints');
                     break;
                 case 'continue':
@@ -720,7 +721,7 @@ function refreshLocals() {
         function updateBreakpointGutter() {
             editor.clearGutter('breakpoints');
             breakpoints.forEach(bp => {
-                // Only show user breakpoints (positive IDs) in our source file
+                // only show user breakpoints (positive IDs) in our source file
                 if (bp.id > 0 && bp.file === currentSourceFile && bp.line) {
                     const marker = document.createElement('div');
                     marker.className = 'breakpoint-gutter';
@@ -766,11 +767,9 @@ function refreshLocals() {
         function setCurrentFrame(idx) {
             currentFrame = idx;
             refreshStack();
-            // Fetch locals for that frame (by evaluating with frame)
-            // Not directly supported by current command set; you'd need to extend backend.
         }
 
-        // ---------- Compile & Start Session ----------
+        // ---------- compile & start Session ----------
         async function compile() {
             // clear output panel
             outputDiv.innerHTML = '';
@@ -811,7 +810,7 @@ function refreshLocals() {
             sendCommand('restart');
         }
 
-        // ---------- Event Listeners ----------
+        // event listeners
         compileBtn.addEventListener('click', compile);
         continueBtn.addEventListener('click', () => sendCommand('continue'));
         nextBtn.addEventListener('click', () => sendCommand('next'));
@@ -820,7 +819,7 @@ function refreshLocals() {
         restartBtn.addEventListener('click', restart);
         stopBtn.addEventListener('click', disconnect);
 
-        // Section toggling
+        // section toggling
         document.querySelectorAll('.panel-header').forEach(header => {
             header.addEventListener('click', () => {
                 const content = header.nextElementSibling;
@@ -831,7 +830,7 @@ function refreshLocals() {
             });
         });
 
-        // Expose for inline handlers
+        // expose for inline handlers
         window.compile = compile;
         window.sendCommand = sendCommand;
         window.disconnect = disconnect;

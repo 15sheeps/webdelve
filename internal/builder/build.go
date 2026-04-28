@@ -1,82 +1,90 @@
 package builder
 
 import (
+	"github.com/15sheeps/webdelve/internal/config"
+	"github.com/15sheeps/webdelve/internal/sandbox"
+
+	"go/ast"
+	"go/format"
+	"go/parser"
+	"go/token"
+
 	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"github.com/15sheeps/webdelve/internal/config"
-	"github.com/15sheeps/webdelve/internal/manager"
-	"github.com/15sheeps/webdelve/internal/sandbox"
-	"go/format"
-	"go/parser"
-	"go/token"
 	"golang.org/x/sync/semaphore"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 )
 
-type Builder struct {
-	cfg     config.BuilderConfig
-	pool    *sandbox.SandboxPool
-	manager *manager.Manager
-	sem     *semaphore.Weighted
+type BuildResult struct {
+	Formatted string
+	ExePath   string
 }
 
-func NewBuilder(
-	cfg config.BuilderConfig,
-	pool *sandbox.SandboxPool,
-	manager *manager.Manager,
-) *Builder {
+type Builder struct {
+	cfg config.BuilderConfig
+	sem *semaphore.Weighted
+}
+
+func NewBuilder(cfg config.BuilderConfig) *Builder {
 	if cfg.ConcurrentLimit <= 0 {
 		cfg.ConcurrentLimit = 1
 	}
 
 	return &Builder{
-		pool:    pool,
-		cfg:     cfg,
-		manager: manager,
-		sem:     semaphore.NewWeighted(cfg.ConcurrentLimit),
+		cfg: cfg,
+		sem: semaphore.NewWeighted(cfg.ConcurrentLimit),
 	}
 }
 
-func (b *Builder) ValidateBasic(src []byte) error {
-	// validating imports
-	// TODO: make it able to use these packages or at least parse source instead of string.Contains
-	forbiddenImports := []string{
-		"os/exec",
-		"syscall",
-		"unsafe",
-		"net/http",
-	}
-
-	for _, imp := range forbiddenImports {
-		if strings.Contains(string(src), fmt.Sprintf("%q", imp)) {
-			return fmt.Errorf("import %q is not allowed", imp)
-		}
-	}
-	// check if package declared main
+// verify that package is named "main" and "main" function exists
+func validateMain(src []byte) error {
+	// parsing AST
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, "", src, parser.PackageClauseOnly)
+	f, err := parser.ParseFile(fset, "", src, parser.ParseComments)
 	if err != nil {
 		return fmt.Errorf("parse error: %w", err)
 	}
+
 	if f.Name.Name != "main" {
 		return errors.New("package must be main")
 	}
+
+	hasMainFunc := false
+	for _, decl := range f.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		// looking for "main" func that shouldn't have receiver
+		if ok && fn.Name.Name == "main" && fn.Recv == nil {
+			// also shouldn't have parameters or results
+			if fn.Type.Params.NumFields()+fn.Type.Results.NumFields() == 0 {
+				hasMainFunc = true
+				break
+			}
+		}
+	}
+
+	if !hasMainFunc {
+		return errors.New("main function isn't declared in the package")
+	}
+
 	return nil
 }
 
-func (b *Builder) Build(ctx context.Context, src []byte) (*BuildResponse, error) {
+// Build formats provided source code and builds binary
+func (b *Builder) Build(pctx context.Context, src []byte) (*BuildResult, error) {
+	ctx, cancel := context.WithTimeout(pctx, b.cfg.BuildTimeout)
+	defer cancel()
+
 	if err := b.sem.Acquire(ctx, 1); err != nil {
 		return nil, err
 	}
 	defer b.sem.Release(1)
 
-	if err := b.ValidateBasic(src); err != nil {
+	if err := validateMain(src); err != nil {
 		return nil, err
 	}
 
@@ -96,7 +104,7 @@ func (b *Builder) Build(ctx context.Context, src []byte) (*BuildResponse, error)
 		return nil, fmt.Errorf("failed to write main.go: %w", err)
 	}
 	// create go.mod
-	goModContent := []byte("module main\n")
+	goModContent := []byte("module main\n\ngo 1.23\n")
 	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), goModContent, 0644); err != nil {
 		os.RemoveAll(tmpDir)
 		return nil, fmt.Errorf("failed to write go.mod: %w", err)
@@ -108,44 +116,61 @@ func (b *Builder) Build(ctx context.Context, src []byte) (*BuildResponse, error)
 		return nil, err
 	}
 
-	return &BuildResponse{
-		exePath:   exePath,
+	return &BuildResult{
+		ExePath:   exePath,
 		Formatted: string(formatted),
 	}, nil
 }
 
 func (b *Builder) build(ctx context.Context, dir, output string) error {
-	buildCtx, cancel := context.WithTimeout(ctx, b.cfg.BuildTimeout)
-	defer cancel()
+	cmd := exec.CommandContext(ctx,
+		"go", "build",
+		"-o", output,
+//		"-tags=faketime",
+		"-gcflags=all=-N -l", ".", // delve requires '-N -l' flags
+	)
 
-	cmd := exec.CommandContext(buildCtx, "go", "build", "-o", output, "-gcflags=all=-N -l", "main.go")
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(),
+		"GOROOT=/usr/local/go",
 		"GOOS=linux",
 		"GOARCH=amd64",
 		"CGO_ENABLED=0",
+		"GOPROXY=off", // allow only stdlib for now
 	)
+
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		if buildCtx.Err() == context.DeadlineExceeded {
+		if ctx.Err() == context.DeadlineExceeded {
 			return fmt.Errorf("build timeout exceeded (%v)", b.cfg.BuildTimeout)
 		}
 		return fmt.Errorf("build failed: %s", stderr.String())
 	}
 
+	fileInfo, err := os.Stat(output)
+	switch {
+	case err != nil:
+		return fmt.Errorf("failed to stat binary: %w", err)
+	case fileInfo.Size() == 0:
+		return errors.New("built binary is empty")
+	case fileInfo.Size() > b.cfg.MaxBinarySize:
+		return fmt.Errorf("built binary size exceeds limit (%d)", b.cfg.MaxBinarySize)
+	}
+
 	return nil
 }
 
-// Clenup removes temporary directory with executable in it
-func Cleanup(result *BuildResponse) {
-	if result != nil && result.exePath != "" {
-		dir := filepath.Dir(result.exePath)
+// Clenup removes temporary directory after build
+func Cleanup(result *BuildResult) {
+	if result != nil && result.ExePath != "" {
+		dir := filepath.Dir(result.ExePath)
 		os.RemoveAll(dir)
 	}
 }
 
+// Upload transfers built binary into the cointainer
 func Upload(ctx context.Context, container *sandbox.Container, exePath string) error {
 	// read the binary
 	data, err := os.ReadFile(exePath)
@@ -154,16 +179,16 @@ func Upload(ctx context.Context, container *sandbox.Container, exePath string) e
 	}
 
 	// copy binary to the container
-	if err := container.CopyFileTo(ctx, "/sandbox/program", data); err != nil {
-		return fmt.Errorf("failed to copy binary to container: %w", err)
+	if err := container.CopyFileTo(ctx, "/program", data); err != nil {
+		return fmt.Errorf("failed to copy binary: %w", err)
 	}
 
 	// chmod +x
-	reader, err := container.Exec(ctx, []string{"chmod", "+x", "/sandbox/program"})
+	reader, err := container.Exec(ctx, []string{"chmod", "+x", "/program"})
 	if err != nil {
 		return fmt.Errorf("failed to chmod binary: %w", err)
 	}
-	go io.Copy(io.Discard, reader)
+	io.Copy(io.Discard, reader)
 
 	return nil
 }

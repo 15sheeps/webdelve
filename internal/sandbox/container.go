@@ -11,14 +11,14 @@ import (
 
 // Container represents running container
 type Container struct {
-	id       string
-	hostPort string // dynamically assigned port for delve
-	cli      *client.Client
+	id      string
+	address string
+	cli     *client.Client
 }
 
-// HostPort returns delve's listening port mapped to host
-func (c *Container) HostPort() string {
-	return c.hostPort
+// Addr() returns address to connect to the delve server
+func (c *Container) Address() string {
+	return c.address
 }
 
 // Returns the ID of the container

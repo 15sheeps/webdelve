@@ -3,11 +3,12 @@ package manager
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"github.com/15sheeps/webdelve/internal/sandbox"
+	"github.com/go-delve/delve/service/api"
 	"github.com/go-delve/delve/service/rpc2"
 	"github.com/google/uuid"
-	"net"
-	"time"
 )
 
 type Session struct {
@@ -21,19 +22,41 @@ func (m *Manager) StartSession(
 	container *sandbox.Container,
 	exePath string,
 ) (*Session, error) {
-	hostPort := container.HostPort()
-	addr := net.JoinHostPort("127.0.0.1", hostPort)
+	addr := container.Address()
 
 	// connect rpc client
 	client, err := clientConnRetry(ctx, addr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to delve on port %s", hostPort)
+		return nil, fmt.Errorf("failed to connect to delve at %s: %w", addr, err)
 	}
 
-	m.logger.Info("delve server started",
-		"host_port", hostPort,
+	m.logger.Info("connected to the delve server",
+		"address", addr,
 		"container_id", container.ID(),
 	)
+
+	// initial breakpoint on main.main
+	if _, err := client.CreateBreakpoint(&api.Breakpoint{
+		FunctionName: "main.main",
+	}); err != nil {
+		client.Disconnect(false) // disconnect without killing delve
+		return nil, fmt.Errorf("set initial breakpoint: %w", err)
+	}
+
+	// continue to main.main
+	select {
+	case <-client.Continue():
+		/*
+			case state := <-contCh:
+				if state.Exited {
+					client.Disconnect(false)
+					return nil, fmt.Errorf("program exited before reaching main.main (status %d)", state.ExitStatus)
+				}
+		*/
+	case <-ctx.Done():
+		client.Disconnect(false)
+		return nil, ctx.Err()
+	}
 
 	sess := &Session{
 		ID:        uuid.New().String(),
@@ -42,7 +65,6 @@ func (m *Manager) StartSession(
 	}
 
 	m.add(sess)
-
 	return sess, nil
 }
 

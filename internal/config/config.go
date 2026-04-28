@@ -26,13 +26,13 @@ type SandboxConfig struct {
 type ServerConfig struct {
 	MaxSourceSize int64         `yaml:"max_source_size"`
 	Address       string        `yaml:"address"`
-	RWTimeout     time.Duration `yaml:rw_timeout`
+	RWTimeout     time.Duration `yaml:"rw_timeout"`
 }
 
 type BuilderConfig struct {
 	ConcurrentLimit int64         `yaml:"concurrent_limit"` // max amount of build processes running at once
 	BuildTimeout    time.Duration `yaml:"build_timeout"`
-	MaxBinarySize   int           `yaml:"max_binary_size"`
+	MaxBinarySize   int64         `yaml:"max_binary_size"`
 }
 
 type LogConfig struct {
@@ -48,11 +48,11 @@ func MustLoad() (cfg Config) {
 
 	data, err := os.ReadFile(cfgPath)
 	if err != nil {
-		log.Fatalln("failed to read config file %s", cfgPath)
+		log.Fatalf("failed to read config file %s\n", cfgPath)
 	}
 
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		log.Fatalln("failed to unmarshal config file: %s", cfgPath)
+		log.Fatalf("failed to unmarshal config file: %s\n", cfgPath)
 	}
 
 	return

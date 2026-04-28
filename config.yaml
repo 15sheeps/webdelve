@@ -1,20 +1,20 @@
 sandbox:
-    image: "webdelve:latest"
-    pool_limit: 5
-    start_timeout: 20s
-    remove_timeout: 20s
-    health_timeout: 2s
-    memory_limit: 134217728 # 128 MB
+    image: "webdelve-sandbox:latest"
+    pool_limit: 3             # max containers (running + idle)
+    start_timeout: 20s        # container startup timeout
+    remove_timeout: 20s       #           removal timeout
+    health_timeout: 2s        #      health check timeout
+    memory_limit: 268435456   # container memory limit (bytes)
 
 server:
-    max_source_size: 65536 # 64 KB
-    address: ":8080"
-    rw_timeout: 10s
+    max_source_size: 65536
+    address: ":8080"          # web server listen address
+    rw_timeout: 10s           # web server read/write timeout
 
 builder:
-    concurrent_limit: 10 
-    build_timeout: 10s
-    max_binary_size: 31457280 # 3 MB
+    concurrent_limit: 10      # maximum concurrent builds
+    build_timeout: 15s
+    max_binary_size: 52428800 # maximum built binary size
 
 log:
     level: "debug"

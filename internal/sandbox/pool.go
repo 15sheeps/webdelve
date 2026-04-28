@@ -7,12 +7,14 @@ import (
 	"github.com/15sheeps/webdelve/internal/config"
 	"github.com/moby/moby/client"
 	"log/slog"
+	"net"
+	"os"
 	"sync"
 	"time"
 )
 
-// Sandbox manages a pool of warm containers
-type SandboxPool struct {
+// Pool manages a pool of warm containers
+type Pool struct {
 	client *client.Client // docker client
 	cfg    config.SandboxConfig
 	logger *slog.Logger
@@ -25,9 +27,36 @@ type SandboxPool struct {
 	startOnce sync.Once
 	closed    bool
 	stop      chan struct{}
+
+	hostIP string
 }
 
-func NewSandboxPool(ctx context.Context, cfg config.SandboxConfig, logger *slog.Logger) (*SandboxPool, error) {
+// TODO: make user-defined network for service and sandbox containers
+func findHostIP(ctx context.Context, cli *client.Client) (string, error) {
+	if _, err := os.Stat("/.dockerenv"); err != nil {
+		// must be running natevily on host
+		return "127.0.0.1", nil
+	}
+	// must be running inside docker
+	inspectRes, err := cli.NetworkInspect(ctx, "bridge", client.NetworkInspectOptions{})
+	if err != nil {
+		return "", fmt.Errorf("network inspect error: %w", err)
+	}
+
+	// man-made horrors beyond my comprehension
+	ipam := inspectRes.Network.IPAM.Config
+	if len(ipam) == 0 {
+		return "", errors.New("no IPAM config for default bridge network")
+	}
+	gatewayIP := ipam[0].Gateway.String()
+	if gatewayIP == "" {
+		return "", errors.New("bridge gateway IP is empty")
+	}
+
+	return gatewayIP, nil
+}
+
+func NewPool(ctx context.Context, cfg config.SandboxConfig, logger *slog.Logger) (*Pool, error) {
 	if cfg.PoolLimit <= 0 {
 		return nil, errors.New("pool limit must be positive")
 	}
@@ -37,8 +66,14 @@ func NewSandboxPool(ctx context.Context, cfg config.SandboxConfig, logger *slog.
 		return nil, fmt.Errorf("failed to initialize docker client: %w", err)
 	}
 
-	return &SandboxPool{
+	hostIP, err := findHostIP(ctx, dockerClient)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Pool{
 		client: dockerClient,
+		hostIP: hostIP,
 		cfg:    cfg,
 		logger: logger,
 		pool:   make(chan *Container, cfg.PoolLimit),
@@ -48,7 +83,7 @@ func NewSandboxPool(ctx context.Context, cfg config.SandboxConfig, logger *slog.
 }
 
 // StartWorkers spawn workers that keep the pool filled
-func (p *SandboxPool) StartWorkers() {
+func (p *Pool) StartWorkers() {
 	p.startOnce.Do(func() {
 		limit := p.cfg.PoolLimit
 		p.wg.Add(limit)
@@ -58,45 +93,46 @@ func (p *SandboxPool) StartWorkers() {
 	})
 }
 
-// backoff waits for the configured backoff duration or until shutdown.
-func (p *SandboxPool) backoff() {
+// backoff waits for the configured backoff duration or until pool is closed.
+func (p *Pool) backoff() {
 	select {
 	case <-time.After(time.Second):
 	case <-p.stop:
 	}
 }
 
-// worker creates containers and place them into pool
-func (p *SandboxPool) worker() {
+// worker creates containers and place them into the pool
+func (p *Pool) worker() {
 	defer p.wg.Done()
-	for {
+	for { // trying to acquire semaphore slot if stop signal isn't fired
 		select {
 		case <-p.stop:
 			return
-		case p.sem <- struct{}{}: // acquire a slot before starting container
-			startCtx, cancel := context.WithTimeout(context.Background(), p.cfg.StartTimeout)
-			cont, err := p.startContainer(startCtx)
-			cancel()
+		case p.sem <- struct{}{}:
+		}
 
-			if err != nil {
-				p.logger.Error("failed to start container", "error", err)
-				<-p.sem
-				p.backoff()
-				continue
-			}
+		startCtx, cancel := context.WithTimeout(context.Background(), p.cfg.StartTimeout)
+		cont, err := p.startContainer(startCtx)
+		cancel()
 
-			select { // hand off to pool or cleanup if pool closes
-			case p.pool <- cont:
-			case <-p.stop:
-				p.cleanupContainer(cont)
-				return
-			}
+		if err != nil {
+			<-p.sem // release slot
+			p.logger.Error("failed to start container", "error", err)
+			p.backoff()
+			continue
+		}
+
+		select { // add container to the pool or clean if pool is closing
+		case p.pool <- cont:
+		case <-p.stop:
+			p.cleanupContainer(cont)
+			return
 		}
 	}
 }
 
 // Get retrieves healthy container from the pool
-func (p *SandboxPool) Get(ctx context.Context) (*Container, error) {
+func (p *Pool) Get(ctx context.Context) (*Container, error) {
 	p.mu.Lock()
 	if p.closed {
 		p.mu.Unlock()
@@ -128,15 +164,15 @@ func (p *SandboxPool) Get(ctx context.Context) (*Container, error) {
 	}
 }
 
-func (p *SandboxPool) Put(cont *Container) {
+func (p *Pool) Destroy(cont *Container) {
 	if cont == nil {
 		return
 	}
-	go p.cleanupContainer(cont)
+	p.cleanupContainer(cont)
 }
 
 // cleanupContainer handles cleanup and release semaphore slot
-func (p *SandboxPool) cleanupContainer(cont *Container) {
+func (p *Pool) cleanupContainer(cont *Container) {
 	defer func() { <-p.sem }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), p.cfg.RemoveTimeout)
@@ -151,7 +187,7 @@ func (p *SandboxPool) cleanupContainer(cont *Container) {
 }
 
 // Close gracefully shuts down the pool
-func (p *SandboxPool) Close() {
+func (p *Pool) Close() {
 	p.mu.Lock()
 	if p.closed {
 		p.mu.Unlock()
@@ -174,12 +210,12 @@ func (p *SandboxPool) Close() {
 	}
 }
 
-func (p *SandboxPool) Size() int {
+func (p *Pool) IdleCount() int {
 	return len(p.pool)
 }
 
 // startContainer creates and starts new docker container
-func (p *SandboxPool) startContainer(ctx context.Context) (cont *Container, err error) {
+func (p *Pool) startContainer(ctx context.Context) (cont *Container, err error) {
 	createOpts := CreateOptions(p.cfg)
 	createResp, err := p.client.ContainerCreate(ctx, createOpts)
 	if err != nil {
@@ -213,13 +249,15 @@ func (p *SandboxPool) startContainer(ctx context.Context) (cont *Container, err 
 
 	portBinding := info.Container.NetworkSettings.Ports[delvePort]
 	if len(portBinding) == 0 {
-		return nil, fmt.Errorf("no port binding found for delve listening port %s", delvePort)
+		return nil, fmt.Errorf("no port binding found for delve (container %s)", delvePort)
 	}
 
+	address := net.JoinHostPort(p.hostIP, portBinding[0].HostPort)
+
 	cont = &Container{
-		id:       id,
-		cli:      p.client,
-		hostPort: portBinding[0].HostPort,
+		id:      id,
+		cli:     p.client,
+		address: address,
 	}
 
 	return

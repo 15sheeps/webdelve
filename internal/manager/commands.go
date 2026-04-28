@@ -3,6 +3,9 @@ package manager
 import (
 	"context"
 	"fmt"
+	"time"
+
+	"github.com/15sheeps/webdelve/internal/metrics"
 	"github.com/go-delve/delve/service/api"
 	"github.com/go-delve/delve/service/rpc2"
 )
@@ -15,12 +18,17 @@ var defaultLoadCfg = api.LoadConfig{
 	MaxStructFields:    10,
 }
 
-func (m *Manager) executeCommand(
+func (m *Manager) ExecuteCommand(
 	ctx context.Context,
 	client *rpc2.RPCClient,
 	cmd string,
 	args map[string]any,
 ) (any, error) {
+	start := time.Now()
+	defer func() {
+		metrics.DebugCommandDuration.WithLabelValues(cmd).
+			Observe(time.Since(start).Seconds())
+	}()
 	switch cmd {
 	case "next":
 		return client.Next()
@@ -66,7 +74,6 @@ func (m *Manager) executeCommand(
 		return client.Stacktrace(goroutineID, depth, skip, 0, &defaultLoadCfg)
 
 	case "locals":
-		// Сначала получаем состояние для scope
 		state, err := client.GetState()
 		if err != nil {
 			return nil, err
@@ -78,6 +85,14 @@ func (m *Manager) executeCommand(
 		scope := api.EvalScope{
 			GoroutineID: state.CurrentThread.GoroutineID,
 			Frame:       0,
+		}
+
+		// optional goroutineID and frame arguments
+		if gid, ok := args["goroutineId"].(float64); ok {
+			scope.GoroutineID = int64(gid)
+		}
+		if frame, ok := args["frame"].(float64); ok {
+			scope.Frame = int(frame)
 		}
 
 		return client.ListLocalVariables(scope, defaultLoadCfg)
