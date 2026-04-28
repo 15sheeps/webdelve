@@ -1,9 +1,10 @@
 # webdelve - Online Go Compiler & Debugger
 
-webdelve is a web service that provides an online debugging environment for Go programs. It allows to and debug and run Go code directly from browser using the [delve](https://github.com/go-delve/delve) server running in isolated docker containers.
+webdelve is a web service that provides an online debugging environment for Go programs. It allows to run and debug Go code directly from browser using the [delve](https://github.com/go-delve/delve) server running in isolated docker containers.
 
 ## Demo
-<video src="assets/demo.mp4" controls width="100%"></video>
+
+https://github.com/user-attachments/assets/65cf928e-e203-4de4-aa1d-324ec2d01575
 
 ## Features
 
